@@ -1,22 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter } from "react-router";
-import {
-  AuthProvider,
-  BackendProvider,
-  WorkersProvider,
-  useBackend,
-} from "@clockwyrks/ui/client";
 import {
   GalleryApp,
   GalleryDataProvider,
   RunsRuntimeProvider,
   useLiveGallery,
 } from "@clockwyrks/ui/app";
+import {
+  AuthProvider,
+  BackendProvider,
+  WorkersProvider,
+  useBackend,
+} from "@clockwyrks/ui/client";
 import { createHttpArena, fetchArenaUrl } from "@clockwyrks/ui/transport";
+import { useEffect, useMemo, useState } from "react";
+import { BrowserRouter } from "react-router";
+
 import {
   useBackendConnection,
   useExecConnection,
-} from "./state/useConnections";
+} from "./state/use-connections";
 
 // The web console: the full shared gallery app (from @clockwyrks/ui) rendered
 // against live data. It talks to a single backend URL — for the catalog and
@@ -54,18 +55,27 @@ function WebGallery() {
   // adversarial run UI, which it already gates on `canExecute`). The arena handle is
   // rebuilt when either URL changes so it always targets the current connection.
   const { url: backendUrl } = useBackend();
-  const [arenaUrl, setArenaUrl] = useState<string | null>(null);
+  // The arena URL is kept with the backend it was read from, so a switch of
+  // backend reads as "not resolved yet" until the new backend answers, without
+  // an effect having to clear it first.
+  const [resolved, setResolved] = useState<{
+    readonly backendUrl: string;
+    readonly arenaUrl: string | null;
+  } | null>(null);
   useEffect(() => {
-    setArenaUrl(null);
     if (!backendUrl) return;
-    let active = true;
-    fetchArenaUrl(backendUrl)
-      .then((u) => active && setArenaUrl(u))
-      .catch(() => {});
+    const controller = new AbortController();
+    void (async () => {
+      // Never rejects: an unreachable backend resolves null.
+      const arenaUrl = await fetchArenaUrl(backendUrl);
+      if (!controller.signal.aborted) setResolved({ backendUrl, arenaUrl });
+    })();
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [backendUrl]);
+  const arenaUrl =
+    resolved?.backendUrl === backendUrl ? resolved.arenaUrl : null;
   const arena = useMemo(
     () => (backendUrl ? createHttpArena(backendUrl, arenaUrl) : undefined),
     [backendUrl, arenaUrl],

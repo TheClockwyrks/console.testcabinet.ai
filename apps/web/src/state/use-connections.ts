@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   BackendClient,
   BackendContextValue,
@@ -12,6 +11,7 @@ import {
   createHttpBackend,
   fetchArtifactsUrl,
 } from "@clockwyrks/ui/transport";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const BACKEND_KEY = "tcab.web.backendUrl";
 
@@ -22,6 +22,14 @@ function readStored<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** One answer to a backend's identity probe, and the client it came from. */
+interface Probe {
+  readonly client: BackendClient;
+  readonly identity: BackendIdentity | null;
+  readonly status: "ready" | "error";
+  readonly error: string | null;
 }
 
 // The active backend: the single URL the console talks to. It is the source of
@@ -40,14 +48,16 @@ export function useBackendConnection(): BackendContextValue {
       // URL cannot be baked at build. Empty string ⇒ unconfigured (→ null).
       readStored<string>(
         BACKEND_KEY,
-        window.__TCAB_CONFIG__?.backendUrl ??
+        globalThis.__TCAB_CONFIG__?.backendUrl ??
           import.meta.env.VITE_BACKEND_URL ??
           "",
       ) || null,
   );
-  const [identity, setIdentity] = useState<BackendIdentity | null>(null);
-  const [status, setStatus] = useState<BackendStatus>("unconfigured");
-  const [error, setError] = useState<string | null>(null);
+  // What the last probe of a client answered, kept with the client it probed. A
+  // probe that belongs to another client (the URL changed since) reads as
+  // "connecting", so nothing has to be cleared when the URL changes: the state
+  // is derived from which client the answer is for.
+  const [probe, setProbe] = useState<Probe | null>(null);
 
   // One client instance per URL, stable across renders.
   const client = useMemo<BackendClient | null>(
@@ -56,31 +66,34 @@ export function useBackendConnection(): BackendContextValue {
   );
 
   useEffect(() => {
-    if (!client) {
-      setStatus("unconfigured");
-      setIdentity(null);
-      return;
-    }
-    let active = true;
-    setStatus("connecting");
-    setError(null);
-    client
-      .identity()
-      .then((id) => {
-        if (!active) return;
-        setIdentity(id);
-        setStatus("ready");
-      })
-      .catch((e) => {
-        if (!active) return;
-        setIdentity(null);
-        setStatus("error");
-        setError(String(e));
-      });
+    if (!client) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const identity = await client.identity();
+        if (!controller.signal.aborted)
+          setProbe({ client, identity, status: "ready", error: null });
+      } catch (error_: unknown) {
+        if (!controller.signal.aborted) {
+          setProbe({
+            client,
+            identity: null,
+            status: "error",
+            error: String(error_),
+          });
+        }
+      }
+    })();
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [client]);
+
+  const current = client !== null && probe?.client === client ? probe : null;
+  const status: BackendStatus =
+    client === null ? "unconfigured" : (current?.status ?? "connecting");
+  const identity = current?.identity ?? null;
+  const error = current?.error ?? null;
 
   const setUrl = useCallback((next: string) => {
     const trimmed = next.trim();
@@ -111,11 +124,10 @@ export function useExecConnection(
   // preferred over the build-time VITE_AUTH_URL, then falls back to the backend
   // URL (the single-box dev setup where the backend also fronts auth).
   const authUrl = backendUrl
-    ? (window.__TCAB_CONFIG__?.authUrl ??
+    ? (globalThis.__TCAB_CONFIG__?.authUrl ??
       import.meta.env.VITE_AUTH_URL ??
       backendUrl)
     : null;
-  const [artifactsUrl, setArtifactsUrl] = useState<string | null>(null);
 
   // Resolve the artifact service's base URL from the backend's `/config` whenever
   // the backend changes. Best-effort — an unreachable backend leaves it null, so
@@ -128,31 +140,46 @@ export function useExecConnection(
     [backendUrl],
   );
 
+  // The resolved URL is kept with the promise it came from, so a backend switch
+  // reads as "not resolved yet" until the new backend answers.
+  const [resolved, setResolved] = useState<{
+    readonly from: Promise<string | null>;
+    readonly url: string | null;
+  } | null>(null);
   useEffect(() => {
-    setArtifactsUrl(null);
-    let active = true;
-    artifactsSettled.then((u) => active && setArtifactsUrl(u)).catch(() => {});
+    const controller = new AbortController();
+    void (async () => {
+      // Never rejects: an unreachable backend resolves null.
+      const url = await artifactsSettled;
+      if (!controller.signal.aborted)
+        setResolved({ from: artifactsSettled, url });
+    })();
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [artifactsSettled]);
+  const artifactsUrl =
+    resolved?.from === artifactsSettled ? resolved.url : null;
 
-  const worker = useMemo<WorkerHandle | null>(() => {
-    if (!backendUrl || !authUrl) return null;
-    return {
-      id: "backend",
-      label: "Backend",
-      url: backendUrl,
-      client: createBackendExec(backendUrl, authUrl, {
-        current: artifactsUrl,
-        settled: artifactsSettled,
-      }),
-      identity: { url: backendUrl, version: null, backendId: backendUrl },
-      // The execution path *is* the backend, so it trivially matches it.
-      backendMatch: "match",
-    };
+  const worker = useMemo<WorkerHandle | null>(
+    () =>
+      backendUrl && authUrl
+        ? {
+            id: "backend",
+            label: "Backend",
+            url: backendUrl,
+            client: createBackendExec(backendUrl, authUrl, {
+              current: artifactsUrl,
+              settled: artifactsSettled,
+            }),
+            identity: { url: backendUrl, version: null, backendId: backendUrl },
+            // The execution path *is* the backend, so it trivially matches it.
+            backendMatch: "match",
+          }
+        : null,
     // Rebuild when the backend, auth URL, or resolved artifacts URL changes.
-  }, [backendUrl, authUrl, artifactsUrl, artifactsSettled]);
+    [backendUrl, authUrl, artifactsUrl, artifactsSettled],
+  );
 
   const workers = useMemo(() => (worker ? [worker] : []), [worker]);
 
@@ -162,8 +189,14 @@ export function useExecConnection(
     active: worker,
     // There is a single, fixed execution target now; switching/adding/removing a
     // worker no longer exists, so these are no-ops.
-    setActive: () => {},
-    addWorker: () => {},
-    removeWorker: () => {},
+    setActive: () => {
+      // The one target is always the active one.
+    },
+    addWorker: () => {
+      // There is nothing to add.
+    },
+    removeWorker: () => {
+      // The one target cannot be removed.
+    },
   };
 }
