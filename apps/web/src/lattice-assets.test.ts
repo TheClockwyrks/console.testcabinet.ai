@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+import { assert, describe, expect, it } from "vitest";
+
+import { caseVersion, sameAsset, vendoredAssets } from "./test/vendored";
 
 // Drift guard for the vendored Lattice playback assets.
 //
@@ -13,23 +14,18 @@ import { describe, expect, it } from "vitest";
 // play a factory that is not the scored one.
 //
 // These assets are pure data, so lockstep is cheap to enforce: each must be
-// byte-identical to the bundle's. A renderer rework in practice always reshapes the
+// identical to the bundle's (a JSON one in value; see ./test/vendored.ts). A renderer rework in practice always reshapes the
 // atlas (new frames, rates, offsets), so guarding the atlas also catches a runtime
 // that has moved on from the case's art. Resync with:
 //   node scripts/vendor-lattice-assets.mjs
 
-const here = dirname(fileURLToPath(import.meta.url));
-// here = packages/ui/src/app/pages/runs/lattice  ->  repo root is seven levels up.
-const repoRoot = join(here, "..", "..", "..", "..", "..", "..", "..");
-// The lattice version lives in the test-suites checkout beside this one.
-const version = join(
-  repoRoot,
-  "test-suites/test-cases/performance/hard/lattice/v1.0.0",
-);
+// The lattice version lives in the test-suites checkout; the copies are the ones
+// `@clockwyrks/ui` ships (see ./test/vendored.ts).
+const version = caseVersion("performance/hard/lattice/v1.0.0");
 
-const BUNDLE = join(version, "replay/assets");
-const CASES = join(version, "cases");
-const VENDORED = join(here, "assets");
+const BUNDLE = path.join(version, "replay/assets");
+const CASES = path.join(version, "cases");
+const VENDORED = vendoredAssets("lattice");
 
 // Kept in sync with scripts/vendor-lattice-assets.mjs (the engine and the renderer
 // are `@clockwyrks/lattice-runtime`'s, not vendored copies).
@@ -43,14 +39,12 @@ const VENDORED_ASSETS = [
 
 describe("vendored lattice assets", () => {
   for (const name of VENDORED_ASSETS) {
-    it(`${name} matches the case bundle byte-for-byte`, () => {
-      const bundle = readFileSync(join(BUNDLE, name));
-      const vendored = readFileSync(join(VENDORED, name));
-      expect(
-        vendored.equals(bundle),
-        `packages/ui/.../lattice/assets/${name} is stale vs the case bundle. ` +
+    it(`${name} matches the case bundle`, () => {
+      assert(
+        sameAsset(path.join(VENDORED, name), path.join(BUNDLE, name)),
+        `@clockwyrks/ui's lattice/assets/${name} is stale vs the case bundle. ` +
           `Resync: node scripts/vendor-lattice-assets.mjs`,
-      ).toBe(true);
+      );
     });
   }
 });
@@ -77,10 +71,10 @@ describe("lattice reference scenarios", () => {
   // comparable only if they cover the same stretch.
   const WINDOW_TICKS = 2500;
 
-  for (const name of ["small", "medium", "large"]) {
-    describe(name, () => {
-      const reference = read(join(VENDORED, `reference-${name}.json`));
-      const scored = read(join(CASES, `${name}.json`));
+  for (const name of ["small", "medium", "large"] as const) {
+    describe(`the ${name} scenario`, () => {
+      const reference = read(path.join(VENDORED, `reference-${name}.json`));
+      const scored = read(path.join(CASES, `${name}.json`));
 
       it("is the scored layout, entity for entity", () => {
         // The point of playing the scored scenarios rather than fresh ones: what a
@@ -109,8 +103,10 @@ describe("lattice reference scenarios", () => {
           expect(tick).toBeGreaterThanOrEqual(1);
           expect(tick).toBeLessThanOrEqual(reference.ticks);
         }
-        const ascending = [...reference.snapshots].sort((a, b) => a - b);
-        expect(reference.snapshots).toEqual(ascending);
+        const ascending = reference.snapshots.every(
+          (tick, index, all) => index === 0 || (all[index - 1] ?? tick) <= tick,
+        );
+        expect(ascending).toBe(true);
         expect(new Set(reference.snapshots).size).toBe(
           reference.snapshots.length,
         );
@@ -124,7 +120,7 @@ describe("lattice reference scenarios", () => {
 // against the engine (`World::footprints()`), not preferences.
 describe("lattice atlas contract", () => {
   const atlas = JSON.parse(
-    readFileSync(join(VENDORED, "sheet.json"), "utf8"),
+    readFileSync(path.join(VENDORED, "sheet.json"), "utf8"),
   ) as {
     cellSize: number;
     sheet: { width: number; height: number };
@@ -150,16 +146,18 @@ describe("lattice atlas contract", () => {
   };
 
   it("declares every placed entity the simulation can render", () => {
-    expect(Object.keys(atlas.entities).sort()).toEqual([
-      "assembler",
-      "belt",
-      "furnace",
-      "inserter",
-      "lane-splitter",
-      "sink",
-      "source",
-      "splitter",
-    ]);
+    expect(new Set(Object.keys(atlas.entities))).toEqual(
+      new Set([
+        "assembler",
+        "belt",
+        "furnace",
+        "inserter",
+        "lane-splitter",
+        "sink",
+        "source",
+        "splitter",
+      ]),
+    );
   });
 
   it("registers sprites to the 32px simulation cell", () => {
@@ -219,25 +217,28 @@ describe("lattice atlas contract", () => {
     expect(atlas.items.frames).toHaveLength(atlas.items.ids.length);
   });
 
+  // The upgrade tiers an entity declares, if it is tiered.
+  const tiers = (name: string) =>
+    (
+      atlas.entities[name] as {
+        tiers?: { fps: number; loop: number[]; curve?: number[] }[];
+      }
+    ).tiers;
+
   it("carries the belt/inserter/assembler upgrade tiers", () => {
     // The tiered entities each declare three tiers of frame indices; the renderer
     // picks one and plays it at that tier's own rate. The untiered entities do not.
-    const tiers = (name: string) =>
-      (
-        atlas.entities[name] as {
-          tiers?: { fps: number; loop: number[]; curve?: number[] }[];
-        }
-      ).tiers;
     expect(tiers("belt")?.map((t) => t.fps)).toEqual([12, 16, 20]);
     // Each belt tier is a straight loop plus a parallel curve loop.
-    for (const t of tiers("belt")!) {
+    const belts = tiers("belt") ?? [];
+    for (const t of belts) {
       expect(t.loop).toHaveLength(8);
       expect(t.curve).toHaveLength(8);
     }
     expect(tiers("inserter")?.map((t) => t.fps)).toEqual([12, 16, 20]);
-    expect(tiers("inserter")!.every((t) => t.loop.length === 12)).toBe(true);
+    expect(tiers("inserter")?.every((t) => t.loop.length === 12)).toBe(true);
     expect(tiers("assembler")?.map((t) => t.fps)).toEqual([8, 11, 13]);
-    expect(tiers("assembler")!.every((t) => t.loop.length === 8)).toBe(true);
+    expect(tiers("assembler")?.every((t) => t.loop.length === 8)).toBe(true);
     // The single-tier entities stay flat.
     expect(tiers("splitter")).toBeUndefined();
     expect(tiers("source")).toBeUndefined();
