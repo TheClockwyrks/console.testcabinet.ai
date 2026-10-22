@@ -9,13 +9,5 @@
       "@testing-library/jest-dom"
     ]
   },
-  "include": ["src"],
-  "references": [
-    { "path": "../../contracts/packages/run-record" },
-    { "path": "../../contracts/packages/backend-api" },
-    { "path": "../../ui-common/packages/run-stats" },
-    { "path": "../../engines/packages/voxel-runtime" },
-    { "path": "../../engines/packages/particle-runtime" },
-    { "path": "../../engines/packages/lattice-runtime" }
-  ]
+  "include": ["src"]
 }

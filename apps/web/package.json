@@ -15,6 +15,9 @@
     "test:browser": "tsc -b && vitest run --project browser"
   },
   "dependencies": {
+    "@clockwyrks/backend-api": "0.2.4",
+    "@clockwyrks/run-record": "0.2.4",
+    "@clockwyrks/ui": "0.1.1",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/context-zone": "2.0.1",
     "@opentelemetry/core": "2.0.1",
@@ -24,9 +27,6 @@
     "@opentelemetry/resources": "2.0.1",
     "@opentelemetry/sdk-trace-web": "2.0.1",
     "@opentelemetry/semantic-conventions": "1.36.0",
-    "@clockwyrks/backend-api": "*",
-    "@clockwyrks/run-record": "*",
-    "@clockwyrks/ui": "*",
     "react": "^19",
     "react-dom": "^19",
     "react-router": "^7.6.0"

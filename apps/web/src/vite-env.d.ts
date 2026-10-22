@@ -11,6 +11,12 @@ interface ImportMetaEnv {
   readonly VITE_OTEL_SERVICE_NAME?: string;
   /** `deployment.environment.name` resource attribute (default: local). */
   readonly VITE_TCAB_ENV?: string;
+  /**
+   * The origin a share link is built on: `https://tcab.ai` for prod and
+   * `https://staging.tcab.ai` for staging. The image's build passes it (see the
+   * Dockerfile); a development build has none.
+   */
+  readonly VITE_SHARE_ORIGIN?: string;
 }
 
 interface ImportMeta {

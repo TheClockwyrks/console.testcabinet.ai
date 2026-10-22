@@ -4,6 +4,7 @@
 backgrounded
 clippy
 Clockwyrks
+deepseek
 devcontainer
 doctests
 frontmatter
@@ -12,9 +13,11 @@ gitrun
 markdownlint
 nextest
 nyxsis
+openrouter
 pgrep
 pyproject
 pytest
+qwen
 rustdoc
 rustup
 shellcheck

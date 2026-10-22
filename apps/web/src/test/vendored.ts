@@ -3,13 +3,13 @@
 // `@clockwyrks/ui` ships its own copies of the Foray and Lattice cases' replay
 // assets (the sprite sheets and atlases, the Foray engine, the Lattice reference
 // scenarios), so every host draws a run without fetching the case bundle. The
-// copies are vendored from the case versions in the test-suites checkout by
-// scripts/vendor-foray-assets.mjs and scripts/vendor-lattice-assets.mjs, which
-// write them into the ui-common checkout. The console is what holds the
+// copies are vendored from the case versions in the test-suites checkout by the
+// superrepo's scripts/vendor-foray-assets.mjs and scripts/vendor-lattice-assets.mjs,
+// which write them into the ui-common checkout. The console is what holds the
 // test-suites data edge, so the guards live here: they read the copies out of
 // the package the console resolves, as it ships them, and the bundles out of
-// the test-suites checkout beside it.
-import { readFileSync } from "node:fs";
+// the test-suites checkout `TCAB_DEFINITIONS_ROOT` names.
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,37 @@ const repoRoot = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../..",
 );
+
+/** The variable naming the test-suites checkout. */
+export const DEFINITIONS_VARIABLE = "TCAB_DEFINITIONS_ROOT";
+
+/**
+ * The test-suites checkout, the directory holding `test-cases/`.
+ *
+ * `TCAB_DEFINITIONS_ROOT` names it, as the pipeline's checks job sets it to the
+ * checkout it makes beside this repository's. Unset, it is the `test-suites`
+ * directory beside this repository, which is where the superrepo holds both.
+ * A checkout that is not there fails the guards that read it rather than
+ * skipping them: a guard that passes without its data guards nothing.
+ *
+ * @param env The environment the root is read from.
+ */
+export function definitionsRoot(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const named = env[DEFINITIONS_VARIABLE];
+  const root =
+    named === undefined || named === ""
+      ? path.join(repoRoot, "../test-suites")
+      : path.resolve(named);
+  if (!existsSync(path.join(root, "test-cases"))) {
+    throw new Error(
+      `No test-suites checkout at ${root}: it holds no test-cases/. ` +
+        `Check test-suites out and name it in ${DEFINITIONS_VARIABLE}.`,
+    );
+  }
+  return root;
+}
 
 /**
  * The directory of the shipped copy of a page's vendored assets, as the built
@@ -41,7 +72,13 @@ export function vendoredAssets(page: "foray" | "lattice"): string {
  * @param version The version's path under `test-suites/test-cases/`.
  */
 export function caseVersion(version: string): string {
-  return path.join(repoRoot, "test-suites/test-cases", version);
+  const directory = path.join(definitionsRoot(), "test-cases", version);
+  if (!existsSync(directory)) {
+    throw new Error(
+      `The test-suites checkout holds no ${version}: ${directory}`,
+    );
+  }
+  return directory;
 }
 
 /**

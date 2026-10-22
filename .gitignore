@@ -21,6 +21,14 @@ __pycache__/
 .env
 .env.*
 !.env.*.example
+# The console's committed environment files: the development server's defaults
+# and the documented optional variables, neither holding a secret.
+!/.env.development
+!/.env.example
+
+# What the browser suite attaches, a failed test's screenshot among them, when
+# no gate names a directory for it.
+/apps/web/.vitest/
 
 # Scratch work, so none of it is offered to a commit.
 tmp/

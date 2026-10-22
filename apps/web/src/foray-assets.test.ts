@@ -17,7 +17,7 @@ import { caseVersion, sameAsset, vendoredAssets } from "./test/vendored";
 // `renderer.mjs` and cannot be byte-compared — but a renderer rework in practice
 // always reshapes the sheet/atlas (new frames, anims, autotiles), so guarding the
 // assets catches the drift that matters. Resync with:
-//   node scripts/vendor-foray-assets.mjs
+//   node scripts/vendor-foray-assets.mjs   (in the superrepo, then release ui-common)
 
 // The foray version lives in the test-suites checkout; the copies are the ones
 // `@clockwyrks/ui` ships (see ./test/vendored.ts).
@@ -27,7 +27,7 @@ const BUNDLE = path.join(
 );
 const VENDORED = vendoredAssets("foray");
 
-// Kept in sync with scripts/vendor-foray-assets.mjs (renderer.ts excluded — it is
+// Kept in sync with the superrepo's scripts/vendor-foray-assets.mjs (renderer.ts excluded — it is
 // a manual port, not a copy).
 const VENDORED_ASSETS = [
   "foray-core.wasm",
@@ -42,7 +42,7 @@ describe("vendored foray assets", () => {
       assert(
         sameAsset(path.join(VENDORED, name), path.join(BUNDLE, name)),
         `@clockwyrks/ui's foray/assets/${name} is stale vs the case bundle. ` +
-          `Resync: node scripts/vendor-foray-assets.mjs`,
+          `Resync: node scripts/vendor-foray-assets.mjs in the superrepo, then release ui-common`,
       );
     });
   }

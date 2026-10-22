@@ -1,11 +1,13 @@
+import { fileURLToPath } from "node:url";
+
 import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
-import { loadEnv } from "vite";
+import { loadEnv, searchForWorkspaceRoot } from "vite";
 // The test block below is Vitest's, and `vitest/config` is the entry point that
 // declares it alongside Vite's own options.
 import { configDefaults, defineConfig } from "vitest/config";
 
-import { devIdentity, devProxy } from "./src/dev-server";
+import { devIdentity, devProxy, linkedCheckouts } from "./src/dev-server";
 
 /**
  * The web app's build, its development server and its test run.
@@ -13,6 +15,60 @@ import { devIdentity, devProxy } from "./src/dev-server";
  * Every client is a build of this app, so what is configured here is what the
  * browser build and every build made from it carry.
  */
+
+/** This app's directory, which every relative path below is read from. */
+const APP_ROOT = fileURLToPath(new URL(".", import.meta.url));
+
+/**
+ * The directory the `.env*` files are read from: the repository root, where
+ * `.env.development`, `.env.example` and a developer's gitignored
+ * `.env.development.local` live.
+ */
+const ENV_DIR = fileURLToPath(new URL("../..", import.meta.url));
+
+/**
+ * The bare specifiers `@clockwyrks/ui`'s `dist/` imports, other than the
+ * project's packages and React, which the development server pre-bundles.
+ *
+ * The server cannot pre-bundle the package itself: esbuild has no loader for
+ * its `?raw` Markdown imports and no default export for its `?worker` one. Left
+ * out of pre-bundling, its CommonJS-reaching dependencies would reach the
+ * browser unconverted, so they are pre-bundled on its behalf. The list is the
+ * one the package's README states for a Vite host; `vite build` needs none of
+ * it.
+ */
+const UI_PREBUNDLED = [
+  "@dnd-kit/core",
+  "@dnd-kit/modifiers",
+  "@dnd-kit/sortable",
+  "@dnd-kit/utilities",
+  "@observablehq/plot",
+  "@react-three/drei",
+  "@react-three/fiber",
+  "gifenc",
+  "highlight.js/lib/core",
+  "highlight.js/lib/languages/bash",
+  "highlight.js/lib/languages/css",
+  "highlight.js/lib/languages/ini",
+  "highlight.js/lib/languages/javascript",
+  "highlight.js/lib/languages/json",
+  "highlight.js/lib/languages/python",
+  "highlight.js/lib/languages/rust",
+  "highlight.js/lib/languages/scss",
+  "highlight.js/lib/languages/typescript",
+  "highlight.js/lib/languages/xml",
+  "highlight.js/lib/languages/yaml",
+  "react-icons/fa",
+  "react-markdown",
+  "react-router",
+  "react-toastify",
+  "react-virtuoso",
+  "remark-gfm",
+  "three",
+  "three/examples/jsm/utils/SkeletonUtils.js",
+  "zustand",
+  "zustand/middleware",
+];
 
 /** The port the development server binds when `PORT_VARIABLE` names none. */
 const DEV_SERVER_PORT = 1430;
@@ -72,8 +128,8 @@ function devPort(): number {
 /**
  * The directory a gate run wants this suite's machine-readable results in.
  *
- * `ci/gates/web-test.py` and `ci/gates/web-browser-test.py` run the suite with
- * the `CI_GATE_ARTIFACTS` their runner names. Without it, which is every plain
+ * `ci/gates/typescript.py` and `ci/gates/web-browser-test.py` run the suite
+ * with the `CI_GATE_ARTIFACTS` their runner names. Without it, which is every plain
  * `npm test` and `npm run test:browser`, the suite writes no report and
  * collects no coverage.
  */
@@ -105,9 +161,16 @@ function attachmentsFor(instance: string): string {
 export default defineConfig(({ mode }) => {
   // Every variable, not only the `VITE_` ones the bundle sees: the proxy reads
   // its own, which never reach the browser.
-  const env = loadEnv(mode, process.cwd(), "");
+  const env = loadEnv(mode, ENV_DIR, "");
   return {
+    envDir: ENV_DIR,
     plugins: [react(), devIdentity(env)],
+    optimizeDeps: {
+      exclude: ["@clockwyrks/ui"],
+      include: UI_PREBUNDLED.map(
+        (specifier) => `@clockwyrks/ui > ${specifier}`,
+      ),
+    },
     server: {
       // Bind every interface, so a phone on the same network opens a development
       // build at the host machine's address.
@@ -120,8 +183,24 @@ export default defineConfig(({ mode }) => {
       // it at, so a page reads the same address whether this server or the edge
       // is serving it.
       proxy: devProxy(env),
+      fs: {
+        // The repository, which Vite allows by default, and inside the
+        // superrepo each sibling checkout a project package is linked from.
+        allow: [searchForWorkspaceRoot(APP_ROOT), ...linkedCheckouts(APP_ROOT)],
+      },
     },
     test: {
+      server: {
+        deps: {
+          /*
+           * The project's packages from the feed are unpacked into
+           * `node_modules`, which Vitest hands to Node, and Node's ESM resolver
+           * refuses their relative imports without an extension. Inlined, they
+           * go through Vite's resolver as the bundle's do.
+           */
+          inline: [/\/node_modules\/@clockwyrks\//],
+        },
+      },
       /*
        * Two projects, because the app is checked in two places. Almost every
        * test states what a screen renders, which jsdom answers in a fraction of

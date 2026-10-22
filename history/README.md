@@ -74,3 +74,12 @@ kept its own copy. They were kept in the list so `git log --follow` and blame of
 the files copied from them reach their history before the copy. Their commits
 after the copy, which touch the monorepo's copies only, are in this history
 too, and the scaffold commit deletes the twelve files.
+
+## What came from outside the history
+
+The image's two files were rewritten from the monorepo's console image rather
+than carried with history: the `Dockerfile` the kit scaffolds took the place of
+`deployments/images/web.Dockerfile`, and `nginx.conf` is
+`deployments/images/web/nginx.conf`. `tsconfig.base.json` is a copy of the
+monorepo's root one, which the app extended there. Their history before the
+extraction stays in the monorepo.

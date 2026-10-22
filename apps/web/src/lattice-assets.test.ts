@@ -17,7 +17,7 @@ import { caseVersion, sameAsset, vendoredAssets } from "./test/vendored";
 // identical to the bundle's (a JSON one in value; see ./test/vendored.ts). A renderer rework in practice always reshapes the
 // atlas (new frames, rates, offsets), so guarding the atlas also catches a runtime
 // that has moved on from the case's art. Resync with:
-//   node scripts/vendor-lattice-assets.mjs
+//   node scripts/vendor-lattice-assets.mjs   (in the superrepo, then release ui-common)
 
 // The lattice version lives in the test-suites checkout; the copies are the ones
 // `@clockwyrks/ui` ships (see ./test/vendored.ts).
@@ -27,7 +27,7 @@ const BUNDLE = path.join(version, "replay/assets");
 const CASES = path.join(version, "cases");
 const VENDORED = vendoredAssets("lattice");
 
-// Kept in sync with scripts/vendor-lattice-assets.mjs (the engine and the renderer
+// Kept in sync with the superrepo's scripts/vendor-lattice-assets.mjs (the engine and the renderer
 // are `@clockwyrks/lattice-runtime`'s, not vendored copies).
 const VENDORED_ASSETS = [
   "sheet.png",
@@ -43,7 +43,7 @@ describe("vendored lattice assets", () => {
       assert(
         sameAsset(path.join(VENDORED, name), path.join(BUNDLE, name)),
         `@clockwyrks/ui's lattice/assets/${name} is stale vs the case bundle. ` +
-          `Resync: node scripts/vendor-lattice-assets.mjs`,
+          `Resync: node scripts/vendor-lattice-assets.mjs in the superrepo, then release ui-common`,
       );
     });
   }
@@ -65,7 +65,7 @@ describe("lattice reference scenarios", () => {
   const read = (path: string): Scenario =>
     JSON.parse(readFileSync(path, "utf8")) as Scenario;
 
-  // Mirrors `PLAYBACK_WINDOW_TICKS` in `engines/crates/lattice-sdk/src/lib.rs`, which bounds
+  // Mirrors `PLAYBACK_WINDOW_TICKS` in the engines repository's `crates/lattice-sdk/src/lib.rs`, which bounds
   // a submission's playback. The reference is cut to the same window so the two are
   // watched over identical ticks — a run's factory and the reference's are directly
   // comparable only if they cover the same stretch.
