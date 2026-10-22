@@ -17,7 +17,7 @@
   "dependencies": {
     "@clockwyrks/backend-api": "0.2.4",
     "@clockwyrks/run-record": "0.2.4",
-    "@clockwyrks/ui": "0.1.2",
+    "@clockwyrks/ui": "0.1.3",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/context-zone": "2.0.1",
     "@opentelemetry/core": "2.0.1",
