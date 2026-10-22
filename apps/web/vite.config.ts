@@ -70,6 +70,24 @@ const UI_PREBUNDLED = [
   "zustand/middleware",
 ];
 
+/**
+ * The bare specifiers the project's packages import, which the development
+ * server pre-bundles under their own names and resolves to a single copy.
+ *
+ * Installed from the feed, the packages sit in `node_modules`, and the server
+ * finds their imports among the dependencies pre-bundled above. Inside the
+ * superrepo they are links to the sibling checkouts, outside `node_modules`,
+ * so their imports of three.js reach the server as a dependency it has not
+ * seen. It then optimizes it after the page has loaded and reloads the page,
+ * and a module loaded before the reload and one loaded after it hold two
+ * copies of React, which breaks every hook on the page. Named here, it is
+ * optimized before the first page load. Each linked checkout also has a
+ * three.js of its own, so the specifier is resolved from this repository
+ * whoever imports it, which keeps the library's scenes and the runtimes'
+ * meshes in one copy of three.js.
+ */
+const LINKED_PREBUNDLED = ["three"];
+
 /** The port the development server binds when `PORT_VARIABLE` names none. */
 const DEV_SERVER_PORT = 1430;
 
@@ -165,11 +183,13 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: ENV_DIR,
     plugins: [react(), devIdentity(env)],
+    resolve: { dedupe: LINKED_PREBUNDLED },
     optimizeDeps: {
       exclude: ["@clockwyrks/ui"],
-      include: UI_PREBUNDLED.map(
-        (specifier) => `@clockwyrks/ui > ${specifier}`,
-      ),
+      include: [
+        ...UI_PREBUNDLED.map((specifier) => `@clockwyrks/ui > ${specifier}`),
+        ...LINKED_PREBUNDLED,
+      ],
     },
     server: {
       // Bind every interface, so a phone on the same network opens a development
