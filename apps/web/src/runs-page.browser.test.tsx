@@ -1,10 +1,12 @@
 import type { RunSummary } from "@clockwyrks/backend-api/snapshot";
+import type { RunRecord } from "@clockwyrks/run-record";
 import {
   GalleryApp,
   GalleryDataProvider,
   RunsRuntimeProvider,
   runSummaryPage,
   type GalleryDataInput,
+  type RunDetail,
   type RunQuery,
   type RunQueryResult,
 } from "@clockwyrks/ui/app";
@@ -68,6 +70,21 @@ const RUNS = [
   summary("r-beta", "beta", "2026-01-01T00:00:00Z"),
 ];
 
+/**
+ * The record a run's page reads, carrying the fields its header and landing tab
+ * read: the subject the title is drawn from, a settled status, validation with
+ * no proof media, and no published outputs.
+ */
+function record(run: RunSummary): RunRecord {
+  return {
+    id: run.id,
+    subject: { ...run.subject, engineSlug: "none" },
+    status: { state: "completed", detail: null },
+    validation: { loaded: true, proofs: [] },
+    links: { sourceRepo: null, playableBuild: null },
+  } as unknown as RunRecord;
+}
+
 /** The cabinet the page lists: two published runs, nothing executing. */
 function galleryValue(): GalleryDataInput {
   return {
@@ -78,6 +95,22 @@ function galleryValue(): GalleryDataInput {
     runsLoading: false,
     queryRunSummaries: (query: RunQuery): Promise<RunQueryResult> =>
       Promise.resolve(runSummaryPage(RUNS, { ...query, state: "published" })),
+    readRun: (runId: string): Promise<RunDetail | null> => {
+      const run = RUNS.find((r) => r.id === runId);
+      return Promise.resolve(
+        run
+          ? {
+              record: record(run),
+              reviews: [],
+              validatorRated: false,
+              rating: null,
+              aesthetic: null,
+              published: true,
+              showcase: null,
+            }
+          : null,
+      );
+    },
     testCases: [
       { slug: "alpha", name: "Alpha", versions: ["1.0.0"] },
       { slug: "beta", name: "Beta", versions: ["1.0.0"] },
@@ -148,12 +181,16 @@ function underPointer(element: Element): Element | null {
   );
 }
 
+// The gallery keeps the tab's in-app history in sessionStorage for its back
+// controls, so each test starts from a tab with nothing behind it.
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("the Runs page in a browser", { timeout: TEST_TIMEOUT }, () => {
@@ -180,5 +217,35 @@ describe("the Runs page in a browser", { timeout: TEST_TIMEOUT }, () => {
     await waitFor(() => {
       expect(screen.getByTestId("location")).toHaveTextContent("/runs/r-alpha");
     });
+  });
+
+  it("returns to the Runs page from the run's back chevron", async () => {
+    const title = await openRunsPage();
+    await userEvent.click(title);
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/runs/r-alpha");
+    });
+
+    // The run was opened from the list, so its chevron returns through history
+    // to the list rather than naming its fallback.
+    const back = await screen.findByRole(
+      "link",
+      { name: "Back" },
+      { timeout: ARRIVAL_BUDGET },
+    );
+    await userEvent.click(back);
+
+    await waitFor(() => {
+      const location = screen.getByTestId("location");
+      expect(location).toHaveTextContent("/runs");
+      expect(location).not.toHaveTextContent("r-alpha");
+    });
+    expect(
+      await screen.findByRole(
+        "link",
+        { name: /Alpha/ },
+        { timeout: ARRIVAL_BUDGET },
+      ),
+    ).toBeInTheDocument();
   });
 });
