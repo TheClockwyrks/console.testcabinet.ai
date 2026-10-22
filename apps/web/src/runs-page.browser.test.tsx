@@ -12,7 +12,7 @@ import {
 } from "@clockwyrks/ui/app";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 /**
@@ -123,17 +123,23 @@ function galleryValue(): GalleryDataInput {
 }
 
 /**
- * How long the first row is given to arrive.
+ * How long a test's first row is given to arrive.
  *
  * The rows are answered from a fixed cabinet the moment the page asks, so what
- * this budgets is the page's own render, which is cheap everywhere but in a cold
- * WebKit on a pipeline agent: six instances share the agent's cores, and the
- * first render of this page there, before the engine has compiled any of the
- * gallery's modules, has outlasted ten seconds while the same render a test
- * later takes two. The budget is the cold render's, and a test's own timeout
- * is set to hold it.
+ * this budgets is the page's own render. The suite's first render is the costly
+ * one: in a cold WebKit on a pipeline agent, where six instances share the
+ * agent's cores, it loads and compiles every gallery module the page reaches
+ * and has taken close to thirty seconds, while the same render a test later
+ * takes two. That cold render is done once, before the tests, by `warmUp`, so
+ * this budgets a warm render with a wide margin rather than racing the cold one.
  */
 const ARRIVAL_BUDGET = 30_000;
+
+/**
+ * The time the warm-up is given: the cold first render, however long the agent
+ * takes to load the gallery's modules. It bounds a hung page, not a slow one.
+ */
+const WARM_UP_TIMEOUT = 180_000;
 
 /** The time a test is given, which holds the arrival budget and the click. */
 const TEST_TIMEOUT = 45_000;
@@ -145,12 +151,11 @@ function LocationProbe() {
 }
 
 /**
- * Opens the Runs page, waits for its rows to arrive, and answers the first row's
- * title: the test case's name, which the row's link is named after, and which
- * the filter bar's test-case facet also lists, so it is found through the link.
+ * Renders the Runs page the way the console opens it, into `host` when one is
+ * given and into a container the runner's cleanup removes otherwise.
  */
-async function openRunsPage(): Promise<HTMLElement> {
-  render(
+function renderRunsPage(host?: HTMLElement) {
+  return render(
     <GalleryDataProvider value={galleryValue()}>
       <RunsRuntimeProvider>
         <MemoryRouter initialEntries={["/runs"]}>
@@ -159,13 +164,47 @@ async function openRunsPage(): Promise<HTMLElement> {
         </MemoryRouter>
       </RunsRuntimeProvider>
     </GalleryDataProvider>,
+    host === undefined ? undefined : { container: host },
   );
+}
+
+/**
+ * Opens the Runs page, waits for its rows to arrive, and answers the first row's
+ * title: the test case's name, which the row's link is named after, and which
+ * the filter bar's test-case facet also lists, so it is found through the link.
+ */
+async function openRunsPage(): Promise<HTMLElement> {
+  renderRunsPage();
   const row = await screen.findByRole(
     "link",
     { name: /Alpha/ },
     { timeout: ARRIVAL_BUDGET },
   );
   return within(row).getByText("Alpha");
+}
+
+/**
+ * Opens the Runs page once and takes it down again, so the engine has loaded
+ * and compiled the gallery's modules before any test opens the page and the
+ * cold first render is not charged to whichever test happens to run first.
+ *
+ * The page is rendered into a host of its own and taken out of the document
+ * here rather than left to the runner's cleanup, which runs after each test and
+ * not after this hook: left in, the first test would find two pages.
+ */
+async function warmUp(): Promise<void> {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const { unmount } = renderRunsPage(host);
+  await screen.findByRole(
+    "link",
+    { name: /Alpha/ },
+    { timeout: WARM_UP_TIMEOUT },
+  );
+  unmount();
+  host.remove();
+  localStorage.clear();
+  sessionStorage.clear();
 }
 
 /**
@@ -194,6 +233,8 @@ afterEach(() => {
 });
 
 describe("the Runs page in a browser", { timeout: TEST_TIMEOUT }, () => {
+  beforeAll(warmUp, WARM_UP_TIMEOUT);
+
   it("puts a run's title under the pointer, not the selection control", async () => {
     const title = await openRunsPage();
 
